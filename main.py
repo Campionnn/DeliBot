@@ -81,7 +81,7 @@ deliMaxWait = 3600  # maximum time to wait for deli before failsafe
 itemNotifValue = 900000  # value of received item to be notified in discord
 forceStart = True  # True or False to skip the prompt to click start
 
-itemValue = {  # prices of items you can receive from deli
+keepItem = {  # prices of items you can receive from deli
     "Green Bean": 95000,
     "Blue Bean": 150000,
     "Red Bean": 400000,
