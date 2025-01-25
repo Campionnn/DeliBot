@@ -78,6 +78,8 @@ serverID = 0  # discord server id
 deliType = "long"  # "short" or "long"
 deliMaxWait = 3600  # maximum time to wait for deli before failsafe
 
+dialogueWaitMultiplier = 1.0  # Multiply dialogue wait times by this number for slower PCs
+
 itemNotifValue = 900000  # value of received item to be notified in discord
 forceStart = True  # True or False to skip the prompt to click start
 
@@ -190,7 +192,7 @@ async def open_inventory():
         if not await wait_pixel(inventoryCord[0], inventoryCord[1], inventoryColor, interval=0.5, timeout=5, keypress='q'):
             print("Failed to open inventory. Exiting")
             exit_handler()
-            os._exit()
+            os._exit(0)
 
 
 async def inventory_screenshot():
@@ -283,7 +285,7 @@ async def inventory_item_count(slot):  # get number of items in a slot
             number = result[y:y + h, x:x + w]
 
     # OCR final number
-    count = pytesseract.image_to_string(number, config='--psm 6 --oem 3 -c tessedit_char_whitelist=0123456789')
+    count = pytesseract.image_to_string(number, timeout=5, config='--psm 6 --oem 3 -c tessedit_char_whitelist=0123456789')
 
     if count == "" or int(count) == 0:
         print(f"Failed to get stack count of {inventory[slot]}")
@@ -301,7 +303,7 @@ async def inventory_item_name():
     im_arr = np.array(image)
     mask = np.all(im_arr[..., :3] != (255, 255, 255), axis=-1)
     im_arr[mask, :3] = (0, 0, 0)
-    name = pytesseract.image_to_string(im_arr, timeout=1).rstrip()
+    name = pytesseract.image_to_string(im_arr, timeout=5).rstrip()
     return name
 
 
@@ -442,18 +444,18 @@ async def start_food():
             exit_handler()
             os._exit(0)
     autoit.mouse_click("left", ringText[0], ringText[1], speed=2)
-    await asyncio.sleep(3.25)
+    await asyncio.sleep(3.25 * dialogueWaitMultiplier)
     autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
-    await asyncio.sleep(2.25)
+    await asyncio.sleep(2.25 * dialogueWaitMultiplier)
     autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
-    await asyncio.sleep(2.25)
+    await asyncio.sleep(2.25 * dialogueWaitMultiplier)
     autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.5 * dialogueWaitMultiplier)
     if deliType == "short":
         autoit.mouse_click("left", shortCord[0], shortCord[1], speed=2)
     else:
         autoit.mouse_click("left", longCord[0], longCord[1], speed=2)
-    await asyncio.sleep(1)
+    await asyncio.sleep(1 * dialogueWaitMultiplier)
     autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
     wait_start = time.time()
     if not await wait_pixel(dialogueCord[0], dialogueCord[1], color=dialogueColor, interval=1, antiafk=True, timeout=deliMaxWait):
@@ -462,9 +464,9 @@ async def start_food():
         os._exit(0)
     waitTimes.append(time.time() - wait_start)
     await update_wait()
-    await asyncio.sleep(1.5)
+    await asyncio.sleep(1.5 * dialogueWaitMultiplier)
     autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
-    await asyncio.sleep(1)
+    await asyncio.sleep(1 * dialogueWaitMultiplier)
     autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
 
 
