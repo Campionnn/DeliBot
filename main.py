@@ -392,7 +392,7 @@ async def start_food():
             await asyncio.sleep(0.1)
     else:
         while pyautogui.pixel(dialogueCord[0], dialogueCord[1]) == dialogueColor:
-            autoit.mouse_click("left", shortCord[0], shortCord[1], speed=2)
+            autoit.mouse_click("left", longCord[0], longCord[1], speed=2)
             await asyncio.sleep(0.1)
     wait_start = time.time()
     if not await wait_pixel(dialogueCord[0], dialogueCord[1], color=dialogueColor, interval=1, antiafk=True, timeout=deliMaxWait):
