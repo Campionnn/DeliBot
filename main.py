@@ -6,7 +6,6 @@ import sys
 import threading
 import time
 from difflib import get_close_matches
-
 import cv2
 import discord
 import keyboard
@@ -23,7 +22,8 @@ from discord import app_commands
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
     try:
         exec(open("config.py").read())
-        exec(open("screen.py").read())
+        from screen import *
+        # exec(open("screen.py").read())
     except FileNotFoundError:
         pass
 else:
@@ -81,7 +81,7 @@ deliMaxWait = 3600  # maximum time to wait for deli before failsafe
 dialogueWaitMultiplier = 1.0  # Multiply dialogue wait times by this number for slower PCs
 
 itemNotifValue = 900000  # value of received item to be notified in discord
-forceStart = True  # True or False to skip the prompt to click start
+forceStart = False  # True or False to skip the prompt to click start
 
 keepItem = {  # prices of items you can receive from deli
     "Green Bean": 95000,
@@ -128,6 +128,30 @@ def kill():
     print("Del key detected. Quitting")
     exit_handler()
     os._exit(0)
+
+
+def is_fullscreen():
+    global roblox
+    try:
+        window_rect = win32gui.GetWindowRect(roblox)
+        screen_rect = win32gui.GetClientRect(roblox)
+        if window_rect == screen_rect:
+            return True
+        else:
+            return False
+    except Exception as e:
+        print(f"Error getting fullscreen status: {e}")
+        return False
+
+
+def resize_roblox():
+    global roblox
+    win32gui.SetForegroundWindow(roblox)
+    if is_fullscreen():
+        keyboard.send('f11')
+    time.sleep(0.1)
+    win32gui.ShowWindow(roblox, 1)
+    win32gui.SetWindowPos(roblox, 0, 0, 0, 1300, 900, 0)
 
 
 async def log_item(text):
@@ -183,11 +207,11 @@ def inventory_value():  # get value of inventory
 
 async def open_inventory():
     win32gui.SetForegroundWindow(roblox)
-    win32gui.ShowWindow(roblox, 3)
+    win32gui.ShowWindow(roblox, 1)
     if not await wait_pixel(inventoryCord[0], inventoryCord[1], inventoryColor, interval=0.5, timeout=5, keypress='q'):
         print("Failed to open inventory. Attempting failsafe")
         win32gui.SetForegroundWindow(roblox)
-        win32gui.ShowWindow(roblox, 3)
+        win32gui.ShowWindow(roblox, 1)
         autoit.mouse_click("left", speed=2)
         if not await wait_pixel(inventoryCord[0], inventoryCord[1], inventoryColor, interval=0.5, timeout=5, keypress='q'):
             print("Failed to open inventory. Exiting")
@@ -212,90 +236,7 @@ async def inventory_screenshot():
 
 
 async def inventory_item_count(slot):  # get number of items in a slot
-    bgr_value = (43, 124, 54)
-    b_tolerance = 1
-    g_tolerance = 0.75
-    r_tolerance = 0.75
-    upper_multiplier = .8
-    lower_multiplier = .4
-    size_multiplier = 5
-    difference = slotsCordRef["difference"]
-    item_x1 = round(slotsCord[slot][0] - difference[0] * 0.45)
-    item_y1 = round(slotsCord[slot][1] - difference[0] * 0)
-    item_x2 = round(slotsCord[slot][0] + difference[0] * 0.45)
-    item_y2 = round(slotsCord[slot][1] + difference[1] * 0.4)
-    item_image = ImageGrab.grab(bbox=(item_x1, item_y1, item_x2, item_y2))
-
-    # cv2.imshow("test", np.array(item_image))
-    # cv2.waitKey(0)
-
-    # convert image to numpy array, change to BGR, and resize
-    im_arr = np.array(item_image)
-    im_arr = cv2.cvtColor(im_arr, cv2.COLOR_RGB2BGR)
-    im_arr = cv2.resize(im_arr, (0, 0), fx=size_multiplier, fy=size_multiplier, interpolation=cv2.INTER_CUBIC)
-
-    # mask image within tolerance of bgr_value
-    lower = np.array(
-        [bgr_value[0] * (1 - b_tolerance * lower_multiplier),
-         bgr_value[1] * (1 - g_tolerance * lower_multiplier),
-         bgr_value[2] * (1 - r_tolerance * lower_multiplier)])
-    upper = np.array(
-        [bgr_value[0] * (1 + b_tolerance * upper_multiplier),
-         bgr_value[1] * (1 + g_tolerance * upper_multiplier),
-         bgr_value[2] * (1 + r_tolerance * upper_multiplier)])
-    mask = cv2.inRange(im_arr, lower, upper)
-    im_arr[mask == 0] = (255, 255, 255)
-    im_arr[mask != 0] = (0, 0, 0)
-
-    # convert image to grayscale and apply Otsu's thresholding
-    gray = cv2.cvtColor(im_arr, cv2.COLOR_BGR2GRAY)
-    thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-
-    # remove noise and  dilate to connect text regions
-    open_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
-    opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, open_kernel, iterations=1)
-    dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    dilate = cv2.morphologyEx(opening, cv2.MORPH_DILATE, dilate_kernel, iterations=2)
-
-    # find contours and get rid of small ones
-    cnts = cv2.findContours(dilate, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cnts = cnts[0] if len(cnts) == 2 else cnts[1]
-    for c in cnts:
-        area = cv2.contourArea(c)
-        if area < 200:
-            cv2.drawContours(dilate, [c], -1, 0, -1)
-
-    # reverse image and apply blur
-    result = 255 - dilate
-    result = cv2.GaussianBlur(result, (3, 3), 0)
-
-    # dilate text a lot to get contour and bounding box
-    text_kerenel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 20))
-    text_dilate = cv2.dilate(dilate, text_kerenel, iterations=1)
-    contours, hierarchy = cv2.findContours(text_dilate, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    # get the lowest bounding box and use in OCR
-    maxcord = 0
-    number = None
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        cord = y + h
-        if cord > maxcord:
-            maxcord = cord
-            number = result[y:y + h, x:x + w]
-
-    # OCR final number
-    count = pytesseract.image_to_string(number, timeout=5, config='--psm 6 --oem 3 -c tessedit_char_whitelist=0123456789')
-
-    if count == "" or int(count) == 0:
-        print(f"Failed to get stack count of {inventory[slot]}")
-        print("Saving images for debugging")
-        if not os.path.exists("images"):
-            os.makedirs("images")
-        item_image.save(f"images/item{slot}-orig {time.strftime('%H-%M-%S')}.png")
-        cv2.imwrite(f"images/item{slot}-num {time.strftime('%H-%M-%S')}.png", number)
-        return 1
-    return int(count)
+    return 1
 
 
 async def inventory_item_name():
@@ -444,19 +385,15 @@ async def start_food():
             exit_handler()
             os._exit(0)
     autoit.mouse_click("left", ringText[0], ringText[1], speed=2)
-    await asyncio.sleep(3.25 * dialogueWaitMultiplier)
-    autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
-    await asyncio.sleep(2.25 * dialogueWaitMultiplier)
-    autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
-    await asyncio.sleep(2.25 * dialogueWaitMultiplier)
-    autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
-    await asyncio.sleep(0.5 * dialogueWaitMultiplier)
+    await wait_pixel(dialogueCord[0], dialogueCord[1], color=dialogueColor, interval=0.5, timeout=5)
     if deliType == "short":
-        autoit.mouse_click("left", shortCord[0], shortCord[1], speed=2)
+        while pyautogui.pixel(dialogueCord[0], dialogueCord[1]) == dialogueColor:
+            autoit.mouse_click("left", shortCord[0], shortCord[1], speed=2)
+            await asyncio.sleep(0.1)
     else:
-        autoit.mouse_click("left", longCord[0], longCord[1], speed=2)
-    await asyncio.sleep(1 * dialogueWaitMultiplier)
-    autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
+        while pyautogui.pixel(dialogueCord[0], dialogueCord[1]) == dialogueColor:
+            autoit.mouse_click("left", shortCord[0], shortCord[1], speed=2)
+            await asyncio.sleep(0.1)
     wait_start = time.time()
     if not await wait_pixel(dialogueCord[0], dialogueCord[1], color=dialogueColor, interval=1, antiafk=True, timeout=deliMaxWait):
         print("Stuck in deli booth longer than max wait time. Exiting")
@@ -464,18 +401,16 @@ async def start_food():
         os._exit(0)
     waitTimes.append(time.time() - wait_start)
     await update_wait()
-    await asyncio.sleep(1.5 * dialogueWaitMultiplier)
-    autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
-    await asyncio.sleep(1 * dialogueWaitMultiplier)
-    autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
+    while pyautogui.pixel(dialogueCord[0], dialogueCord[1]) == dialogueColor:
+        autoit.mouse_click("left", dialogueCord[0], dialogueCord[1], speed=2)
+        await asyncio.sleep(0.1)
 
 
 async def main():
     # set roblox to foreground
     global roblox
     roblox = win32gui.FindWindow(None, "Roblox")
-    win32gui.SetForegroundWindow(roblox)
-    win32gui.ShowWindow(roblox, 3)
+    resize_roblox()
 
     await init_inventory()
 
@@ -921,65 +856,65 @@ async def start(interaction: discord.Interaction):
         await interaction.edit_original_response(content="deliType must be either \"short\" or \"long\"")
         os._exit(0)
 
-    # screen.py auto setup
-    if not os.path.exists("screen.py"):
-        global template_screen
-        await interaction.edit_original_response(content="screen.py not found. Starting setup...")
-        await asyncio.sleep(3)
-        await interaction.edit_original_response(content="Open inventory and put mouse over the top left slot and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059785613991231488/image.png")
-        keyboard.wait("enter")
-        _upperLeft = tuple(pyautogui.position())
-        template_screen = template_screen.replace("upperLeftPos", str(_upperLeft))
-        await asyncio.sleep(1)
-        await interaction.edit_original_response(content="Open inventory and put mouse over the diagonal slot from top left slot and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059786217933242500/image.png")
-        keyboard.wait("enter")
-        _difference = tuple(pyautogui.position())
-        template_screen = template_screen.replace("differencePos", str((_difference[0] - _upperLeft[0], _difference[1] - _upperLeft[1])))
-        await asyncio.sleep(1)
-        await interaction.edit_original_response(content="Open inventory and put mouse over top left of item name area and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059790894783529000/image.png")
-        keyboard.wait("enter")
-        _nameCord1 = tuple(pyautogui.position())
-        template_screen = template_screen.replace("nameCord1Pos", str(_nameCord1))
-        await asyncio.sleep(1)
-        await interaction.edit_original_response(content="Open inventory and put mouse over bottom right of item name area and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059791136698400839/image.png")
-        keyboard.wait("enter")
-        _nameCord2 = tuple(pyautogui.position())
-        template_screen = template_screen.replace("nameCord2Pos", str(_nameCord2))
-        await asyncio.sleep(1)
-        await interaction.edit_original_response(content="Open inventory and put mouse over light purple background behind \"Vanity\" and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059792527017902200/image.png")
-        keyboard.wait("enter")
-        _inv = tuple(pyautogui.position())
-        _invC = pyautogui.pixel(*_inv)
-        template_screen = template_screen.replace("invPos", str(_inv))
-        template_screen = template_screen.replace("invC", str(_invC))
-        await asyncio.sleep(1)
-        await interaction.edit_original_response(content="Sit at the booth and put mouse over white part of \"Ring Bell\" text and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059795112122646528/image.png")
-        keyboard.wait("enter")
-        _ring = tuple(pyautogui.position())
-        _ringC = pyautogui.pixel(*_ring)
-        template_screen = template_screen.replace("ringPos", str(_ring))
-        template_screen = template_screen.replace("ringgC", str(_ringC))
-        await asyncio.sleep(1)
-        await interaction.edit_original_response(content="Click \"Ring Bell\" and put mouse over anywhere near the bottom right green part of dialogue box\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059796493617332284/image.png")
-        keyboard.wait("enter")
-        _diag = tuple(pyautogui.position())
-        _diagC = pyautogui.pixel(*_diag)
-        template_screen = template_screen.replace("dialPos", str(_diag))
-        template_screen = template_screen.replace("dialC", str(_diagC))
-        await asyncio.sleep(1)
-        await interaction.edit_original_response(content="Continue dialogue until you get to the two options and put mouse over \"Short wait\" and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059797532227674162/image.png")
-        keyboard.wait("enter")
-        _short = tuple(pyautogui.position())
-        template_screen = template_screen.replace("shortPos", str(_short))
-        await asyncio.sleep(1)
-        await interaction.edit_original_response(content="Put mouse over \"Long wait\" and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059797971887206420/image.png")
-        keyboard.wait("enter")
-        _long = tuple(pyautogui.position())
-        template_screen = template_screen.replace("longPos", str(_long))
-        with open("screen.py", "w") as f:
-            f.write(template_screen)
-        await interaction.edit_original_response(content="screen.py setup complete. Relaunch the bot")
-        os._exit(0)
+    # # screen.py auto setup
+    # if not os.path.exists("screen.py"):
+    #     global template_screen
+    #     await interaction.edit_original_response(content="screen.py not found. Starting setup...")
+    #     await asyncio.sleep(3)
+    #     await interaction.edit_original_response(content="Open inventory and put mouse over the top left slot and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059785613991231488/image.png")
+    #     keyboard.wait("enter")
+    #     _upperLeft = tuple(pyautogui.position())
+    #     template_screen = template_screen.replace("upperLeftPos", str(_upperLeft))
+    #     await asyncio.sleep(1)
+    #     await interaction.edit_original_response(content="Open inventory and put mouse over the diagonal slot from top left slot and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059786217933242500/image.png")
+    #     keyboard.wait("enter")
+    #     _difference = tuple(pyautogui.position())
+    #     template_screen = template_screen.replace("differencePos", str((_difference[0] - _upperLeft[0], _difference[1] - _upperLeft[1])))
+    #     await asyncio.sleep(1)
+    #     await interaction.edit_original_response(content="Open inventory and put mouse over top left of item name area and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059790894783529000/image.png")
+    #     keyboard.wait("enter")
+    #     _nameCord1 = tuple(pyautogui.position())
+    #     template_screen = template_screen.replace("nameCord1Pos", str(_nameCord1))
+    #     await asyncio.sleep(1)
+    #     await interaction.edit_original_response(content="Open inventory and put mouse over bottom right of item name area and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059791136698400839/image.png")
+    #     keyboard.wait("enter")
+    #     _nameCord2 = tuple(pyautogui.position())
+    #     template_screen = template_screen.replace("nameCord2Pos", str(_nameCord2))
+    #     await asyncio.sleep(1)
+    #     await interaction.edit_original_response(content="Open inventory and put mouse over light purple background behind \"Vanity\" and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059792527017902200/image.png")
+    #     keyboard.wait("enter")
+    #     _inv = tuple(pyautogui.position())
+    #     _invC = pyautogui.pixel(*_inv)
+    #     template_screen = template_screen.replace("invPos", str(_inv))
+    #     template_screen = template_screen.replace("invC", str(_invC))
+    #     await asyncio.sleep(1)
+    #     await interaction.edit_original_response(content="Sit at the booth and put mouse over white part of \"Ring Bell\" text and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059795112122646528/image.png")
+    #     keyboard.wait("enter")
+    #     _ring = tuple(pyautogui.position())
+    #     _ringC = pyautogui.pixel(*_ring)
+    #     template_screen = template_screen.replace("ringPos", str(_ring))
+    #     template_screen = template_screen.replace("ringgC", str(_ringC))
+    #     await asyncio.sleep(1)
+    #     await interaction.edit_original_response(content="Click \"Ring Bell\" and put mouse over anywhere near the bottom right green part of dialogue box\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059796493617332284/image.png")
+    #     keyboard.wait("enter")
+    #     _diag = tuple(pyautogui.position())
+    #     _diagC = pyautogui.pixel(*_diag)
+    #     template_screen = template_screen.replace("dialPos", str(_diag))
+    #     template_screen = template_screen.replace("dialC", str(_diagC))
+    #     await asyncio.sleep(1)
+    #     await interaction.edit_original_response(content="Continue dialogue until you get to the two options and put mouse over \"Short wait\" and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059797532227674162/image.png")
+    #     keyboard.wait("enter")
+    #     _short = tuple(pyautogui.position())
+    #     template_screen = template_screen.replace("shortPos", str(_short))
+    #     await asyncio.sleep(1)
+    #     await interaction.edit_original_response(content="Put mouse over \"Long wait\" and press enter when ready\nReference Image: https://cdn.discordapp.com/attachments/792495578486669313/1059797971887206420/image.png")
+    #     keyboard.wait("enter")
+    #     _long = tuple(pyautogui.position())
+    #     template_screen = template_screen.replace("longPos", str(_long))
+    #     with open("screen.py", "w") as f:
+    #         f.write(template_screen)
+    #     await interaction.edit_original_response(content="screen.py setup complete. Relaunch the bot")
+    #     os._exit(0)
 
     # populate slotsCord using upperLeft and difference, then extrapolating
     if len(slotsCord) == 0:
